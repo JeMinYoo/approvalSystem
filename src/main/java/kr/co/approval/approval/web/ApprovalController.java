@@ -86,9 +86,28 @@ public class ApprovalController {
 
     @GetMapping("/approval/popup")
     public String approvalPopup(@RequestParam(name = "documentId", required = false) String documentId, Model model) {
+        if (documentId == null || documentId.isBlank()) {
+            addCreatePopupModel(model, defaultCreateRequest());
+            return "approval/popup";
+        }
         ApprovalDocument document = resolveDocument(documentId);
         addPopupModel(model, document, new ApprovalActionRequest());
         return "approval/popup";
+    }
+
+    @PostMapping("/approval/popup/documents")
+    public String createDocumentFromPopup(@ModelAttribute ApprovalCreateRequest createRequest, Model model) {
+        try {
+            createRequest.setRequesterId(LOGIN_USER_ID);
+            ApprovalDocument document = approvalService.createDraft(createRequest);
+            addPopupModel(model, document, new ApprovalActionRequest());
+            model.addAttribute("message", "문서가 생성되었습니다. 문서번호: " + document.getDocumentId());
+            return "approval/popup";
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            addCreatePopupModel(model, createRequest);
+            model.addAttribute("errorMessage", exception.getMessage());
+            return "approval/popup";
+        }
     }
 
     @GetMapping("/approval/line-popup")
@@ -108,6 +127,21 @@ public class ApprovalController {
         updateRequest.setRequesterId(LOGIN_USER_ID);
         updateRequest.setActorId(LOGIN_USER_ID);
         runPopupAction(updateRequest.getDocumentId(), model, () -> approvalService.updateDraft(updateRequest));
+        return "approval/popup";
+    }
+
+    @PostMapping("/approval/update-request")
+    public String updateAndRequestApproval(@ModelAttribute ApprovalUpdateRequest updateRequest, Model model) {
+        updateRequest.setRequesterId(LOGIN_USER_ID);
+        updateRequest.setActorId(LOGIN_USER_ID);
+        runPopupAction(updateRequest.getDocumentId(), model, () -> {
+            approvalService.updateDraft(updateRequest);
+            ApprovalActionRequest actionRequest = new ApprovalActionRequest();
+            actionRequest.setDocumentId(updateRequest.getDocumentId());
+            actionRequest.setActorId(LOGIN_USER_ID);
+            actionRequest.setComment(updateRequest.getComment());
+            return approvalService.requestApproval(actionRequest);
+        });
         return "approval/popup";
     }
 
@@ -170,6 +204,14 @@ public class ApprovalController {
         }
         model.addAttribute("document", document);
         model.addAttribute("actionRequest", actionRequest);
+        addReferenceModel(model);
+    }
+
+    private void addCreatePopupModel(Model model, ApprovalCreateRequest createRequest) {
+        createRequest.setRequesterId(LOGIN_USER_ID);
+        model.addAttribute("createMode", true);
+        model.addAttribute("createRequest", createRequest);
+        model.addAttribute("createApproverLineText", approvalLineText(createRequest.getApproverIds()));
         addReferenceModel(model);
     }
 

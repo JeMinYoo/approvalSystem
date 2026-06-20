@@ -14,11 +14,13 @@
     <header class="popup-header">
         <div>
             <p class="eyebrow">Approval Popup</p>
-            <h1>결재 처리</h1>
+            <h1>${createMode ? '신규 결재 문서' : '결재 처리'}</h1>
         </div>
-        <span class="status status-${document.status.cssName}">
-            ${document.status.displayName}
-        </span>
+        <c:if test="${not createMode}">
+            <span class="status status-${document.status.cssName}">
+                ${document.status.displayName}
+            </span>
+        </c:if>
     </header>
 
     <c:if test="${not empty message}">
@@ -36,6 +38,44 @@
     </c:if>
 
     <c:choose>
+        <c:when test="${createMode}">
+            <section class="document-view">
+                <article class="content-box">
+                    <h2>새 문서 작성</h2>
+                    <form method="post" action="<c:url value='/approval/popup/documents' />" class="approval-form compact-form">
+                        <label>
+                            제목
+                            <input name="title" value="${createRequest.title}" required>
+                        </label>
+                        <div class="field-grid">
+                            <label>
+                                요청자
+                                <input value="${loginUserName} (${loginUserId})" readonly>
+                                <input type="hidden" name="requesterId" value="${loginUserId}">
+                            </label>
+                            <label>
+                                결재라인
+                                <input id="popupCreateApproverIds" type="hidden" name="approverIds" value="${createRequest.approverIds}">
+                                <div class="line-picker">
+                                    <input id="popupCreateApproverDisplay" value="${createApproverLineText}" readonly>
+                                    <button type="button" class="secondary-button" onclick="openApprovalLinePopup('popupCreateApproverIds', 'popupCreateApproverDisplay')">
+                                        결재라인 선택
+                                    </button>
+                                </div>
+                            </label>
+                        </div>
+                        <label>
+                            내용
+                            <textarea name="content" rows="8" placeholder="연계 처리 대상, 요청 사유, 참고 사항을 입력하세요." required>${createRequest.content}</textarea>
+                        </label>
+                        <div class="actions">
+                            <button type="button" class="secondary-button" onclick="refreshOpenerAndClose()">닫기</button>
+                            <button type="submit" class="primary-button">문서 생성</button>
+                        </div>
+                    </form>
+                </article>
+            </section>
+        </c:when>
         <c:when test="${deleted}">
             <section class="document-view">
                 <article class="content-box">
@@ -101,17 +141,26 @@
                                 </label>
                                 <div class="field-grid">
                                     <label>
-                                        수정자
+                                        작성자
                                         <input value="${loginUserName} (${loginUserId})" readonly>
                                         <input type="hidden" name="actorId" value="${loginUserId}">
                                     </label>
                                     <label>
-                                        수정 의견
-                                        <input name="comment" value="문서 내용을 수정했습니다.">
+                                        처리 의견
+                                        <input name="comment" placeholder="수정, 삭제, 상신 의견을 입력하세요.">
                                     </label>
                                 </div>
                                 <div class="actions">
-                                    <button type="submit" class="secondary-button">저장</button>
+                                    <button type="button" class="secondary-button" onclick="refreshOpenerAndClose()">닫기</button>
+                                    <button type="submit" class="danger-button" formaction="<c:url value='/approval/delete' />">
+                                        삭제
+                                    </button>
+                                    <button type="submit" class="secondary-button" formaction="<c:url value='/approval/update' />">
+                                        저장
+                                    </button>
+                                    <button type="submit" class="primary-button" formaction="<c:url value='/approval/update-request' />">
+                                        상신
+                                    </button>
                                 </div>
                             </form>
                         </article>
@@ -143,47 +192,32 @@
                 </c:choose>
             </section>
 
-            <section class="action-panel">
-                <h2>결재 액션</h2>
-                <form id="approvalActionForm" method="post" class="approval-form">
-                    <input type="hidden" name="documentId" value="${document.documentId}">
-                    <label>
-                        처리자 ID
-                        <input name="actorId" value="${actionRequest.actorId}" required>
-                    </label>
-                    <label>
-                        처리 의견
-                        <textarea name="comment" rows="4">${actionRequest.comment}</textarea>
-                    </label>
+            <c:if test="${document.decidable}">
+                <section class="action-panel">
+                    <h2>결재자 액션</h2>
+                    <form id="approvalActionForm" method="post" class="approval-form">
+                        <input type="hidden" name="documentId" value="${document.documentId}">
+                        <label>
+                            결재자 ID
+                            <input name="actorId" value="${actionRequest.actorId}" required>
+                        </label>
+                        <label>
+                            결재 의견
+                            <textarea name="comment" rows="4">${actionRequest.comment}</textarea>
+                        </label>
 
-                    <div class="actions">
-                        <button type="button" class="secondary-button" onclick="refreshOpenerAndClose()">닫기</button>
-                        <c:if test="${document.deletable}">
-                            <button type="submit" class="danger-button" formaction="<c:url value='/approval/delete' />">
-                                삭제
-                            </button>
-                        </c:if>
-                        <c:if test="${document.editable}">
-                            <button type="submit" class="primary-button" formaction="<c:url value='/approval/request' />">
-                                상신
-                            </button>
-                        </c:if>
-                        <c:if test="${document.withdrawable}">
-                            <button type="submit" class="secondary-button" formaction="<c:url value='/approval/withdraw' />">
-                                회수
-                            </button>
-                        </c:if>
-                        <c:if test="${document.decidable}">
+                        <div class="actions">
+                            <button type="button" class="secondary-button" onclick="refreshOpenerAndClose()">닫기</button>
                             <button type="submit" class="danger-button" formaction="<c:url value='/approval/reject' />">
                                 반려
                             </button>
                             <button type="submit" class="primary-button" formaction="<c:url value='/approval/approve' />">
                                 승인
                             </button>
-                        </c:if>
-                    </div>
-                </form>
-            </section>
+                        </div>
+                    </form>
+                </section>
+            </c:if>
 
             <section class="history-panel">
                 <div class="section-title">

@@ -13,7 +13,7 @@
 ## 실행
 
 ```powershell
-mvn clean package
+.\mvnw.cmd clean package
 ```
 
 생성된 파일을 Tomcat 10.1의 `webapps`에 배포합니다.
@@ -26,6 +26,32 @@ target/approval-system.war
 
 ```text
 http://localhost:8080/approval-system/approval
+```
+
+## 로컬 개발 환경
+
+프로젝트 전용 Maven Wrapper와 Tomcat 10.1 실행 스크립트를 포함합니다. 전역 Maven/Tomcat 설정이 낮은 버전이어도 아래 명령은 저장소 내부 설정을 우선 사용합니다.
+
+```powershell
+.\scripts\setup-dev.ps1
+```
+
+Tomcat 10.1을 `.tools` 아래에 준비하고 Java 17 환경을 확인합니다.
+
+```powershell
+.\scripts\run-tomcat.ps1
+```
+
+빌드 후 `.tools/apache-tomcat-10.1.55/webapps`에 WAR를 배포하고 다음 주소로 실행합니다.
+
+```text
+http://localhost:8080/approval-system/approval
+```
+
+8080 포트가 사용 중이면 포트를 지정합니다.
+
+```powershell
+.\scripts\run-tomcat.ps1 -Port 8081
 ```
 
 ## 구조

@@ -61,6 +61,10 @@ h2 {
     gap: 18px;
 }
 
+.workspace-list-only {
+    grid-template-columns: 1fr;
+}
+
 .form-panel,
 .list-panel,
 .document-view,
