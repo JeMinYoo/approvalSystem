@@ -6,7 +6,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>결재라인 선택</title>
-    <link rel="stylesheet" href="<c:url value='/resources/css/approval.css' />">
+    <link rel="stylesheet" href="<c:url value='/resources/css/approval.css' />?v=20260725-2">
 </head>
 <body class="popup-body">
 <main class="popup-shell line-popup">

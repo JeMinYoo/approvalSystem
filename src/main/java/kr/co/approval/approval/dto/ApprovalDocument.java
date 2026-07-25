@@ -19,6 +19,7 @@ public class ApprovalDocument {
     private LocalDateTime updatedAt;
     private LocalDateTime requestedAt;
     private LocalDateTime decidedAt;
+    private final List<ApprovalAttachment> attachments = new ArrayList<>();
     private final List<ApprovalHistory> histories = new ArrayList<>();
 
     public ApprovalDocument(String documentId, String title, String requesterId, List<String> approverIds, String content) {
@@ -149,6 +150,18 @@ public class ApprovalDocument {
 
     public void addHistory(ApprovalHistory history) {
         histories.add(history);
+    }
+
+    public List<ApprovalAttachment> getAttachments() {
+        return Collections.unmodifiableList(attachments);
+    }
+
+    public void addAttachments(List<ApprovalAttachment> newAttachments) {
+        attachments.addAll(newAttachments);
+    }
+
+    public void removeAttachments(List<String> attachmentIds) {
+        attachments.removeIf(attachment -> attachmentIds.contains(attachment.getAttachmentId()));
     }
 
     public boolean isDraft() {

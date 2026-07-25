@@ -1,9 +1,16 @@
 package kr.co.approval.approval.web;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.UUID;
 
 import kr.co.approval.approval.dto.ApprovalActionRequest;
+import kr.co.approval.approval.dto.ApprovalAttachment;
 import kr.co.approval.approval.dto.ApprovalCreateRequest;
 import kr.co.approval.approval.dto.ApprovalDocument;
 import kr.co.approval.approval.dto.ApprovalLine;
@@ -11,12 +18,18 @@ import kr.co.approval.approval.dto.ApprovalResult;
 import kr.co.approval.approval.dto.ApprovalUpdateRequest;
 import kr.co.approval.approval.service.ApprovalService;
 import org.springframework.stereotype.Controller;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 @Controller
@@ -24,6 +37,10 @@ public class ApprovalController {
 
     private static final String LOGIN_USER_ID = "requester01";
     private static final String LOGIN_USER_NAME = "로그인 사용자";
+    private static final Set<String> ALLOWED_ATTACHMENT_EXTENSIONS = Set.of(
+            "xls", "xlsx", "hwp", "hwpx", "pdf",
+            "jpg", "jpeg", "png", "gif", "bmp", "webp", "tif", "tiff"
+    );
 
     private static final List<ApprovalLine> APPROVAL_LINES = List.of(
             new ApprovalLine("LINE-TEAM-LEAD", "팀장 결재", "approver01", "팀장 1차 승인"),
@@ -96,10 +113,16 @@ public class ApprovalController {
     }
 
     @PostMapping("/approval/popup/documents")
-    public String createDocumentFromPopup(@ModelAttribute ApprovalCreateRequest createRequest, Model model) {
+    public String createDocumentFromPopup(
+            @ModelAttribute ApprovalCreateRequest createRequest,
+            @RequestParam(name = "attachments", required = false) List<MultipartFile> attachmentFiles,
+            Model model
+    ) {
         try {
+            List<ApprovalAttachment> attachments = prepareAttachments(attachmentFiles);
             createRequest.setRequesterId(LOGIN_USER_ID);
             ApprovalDocument document = approvalService.createDraft(createRequest);
+            document.addAttachments(attachments);
             addPopupModel(model, document, new ApprovalActionRequest());
             model.addAttribute("message", "문서가 생성되었습니다. 문서번호: " + document.getDocumentId());
             return "approval/popup";
@@ -123,19 +146,36 @@ public class ApprovalController {
     }
 
     @PostMapping("/approval/update")
-    public String updateDocument(@ModelAttribute ApprovalUpdateRequest updateRequest, Model model) {
+    public String updateDocument(
+            @ModelAttribute ApprovalUpdateRequest updateRequest,
+            @RequestParam(name = "attachments", required = false) List<MultipartFile> attachmentFiles,
+            @RequestParam(name = "removedAttachmentIds", required = false) List<String> removedAttachmentIds,
+            Model model
+    ) {
         updateRequest.setRequesterId(LOGIN_USER_ID);
         updateRequest.setActorId(LOGIN_USER_ID);
-        runPopupAction(updateRequest.getDocumentId(), model, () -> approvalService.updateDraft(updateRequest));
+        runPopupAction(updateRequest.getDocumentId(), model, () -> {
+            List<ApprovalAttachment> attachments = prepareAttachments(attachmentFiles);
+            ApprovalResult result = approvalService.updateDraft(updateRequest);
+            updateDocumentAttachments(result.getDocument(), attachments, removedAttachmentIds);
+            return result;
+        });
         return "approval/popup";
     }
 
     @PostMapping("/approval/update-request")
-    public String updateAndRequestApproval(@ModelAttribute ApprovalUpdateRequest updateRequest, Model model) {
+    public String updateAndRequestApproval(
+            @ModelAttribute ApprovalUpdateRequest updateRequest,
+            @RequestParam(name = "attachments", required = false) List<MultipartFile> attachmentFiles,
+            @RequestParam(name = "removedAttachmentIds", required = false) List<String> removedAttachmentIds,
+            Model model
+    ) {
         updateRequest.setRequesterId(LOGIN_USER_ID);
         updateRequest.setActorId(LOGIN_USER_ID);
         runPopupAction(updateRequest.getDocumentId(), model, () -> {
-            approvalService.updateDraft(updateRequest);
+            List<ApprovalAttachment> attachments = prepareAttachments(attachmentFiles);
+            ApprovalResult updateResult = approvalService.updateDraft(updateRequest);
+            updateDocumentAttachments(updateResult.getDocument(), attachments, removedAttachmentIds);
             ApprovalActionRequest actionRequest = new ApprovalActionRequest();
             actionRequest.setDocumentId(updateRequest.getDocumentId());
             actionRequest.setActorId(LOGIN_USER_ID);
@@ -143,6 +183,30 @@ public class ApprovalController {
             return approvalService.requestApproval(actionRequest);
         });
         return "approval/popup";
+    }
+
+    @GetMapping("/approval/attachments/download")
+    public ResponseEntity<byte[]> downloadAttachment(
+            @RequestParam(name = "documentId") String documentId,
+            @RequestParam(name = "attachmentId") String attachmentId
+    ) {
+        ApprovalAttachment attachment = approvalService.findByDocumentId(documentId).getAttachments().stream()
+                .filter(item -> item.getAttachmentId().equals(attachmentId))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("첨부파일을 찾을 수 없습니다."));
+        MediaType mediaType;
+        try {
+            mediaType = MediaType.parseMediaType(attachment.getContentType());
+        } catch (IllegalArgumentException exception) {
+            mediaType = MediaType.APPLICATION_OCTET_STREAM;
+        }
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentDisposition(ContentDisposition.attachment()
+                .filename(attachment.getFileName(), StandardCharsets.UTF_8)
+                .build());
+        headers.setContentType(mediaType);
+        headers.setContentLength(attachment.getSize());
+        return ResponseEntity.ok().headers(headers).body(attachment.getContent());
     }
 
     @PostMapping("/approval/request")
@@ -279,6 +343,44 @@ public class ApprovalController {
                 .findFirst()
                 .map(line -> line.getLineName() + " - " + line.getDescription() + " (" + line.getApproverId() + ")")
                 .orElse(approverId);
+    }
+
+    private List<ApprovalAttachment> prepareAttachments(List<MultipartFile> files) {
+        if (files == null) {
+            return Collections.emptyList();
+        }
+        return files.stream()
+                .filter(file -> file != null && !file.isEmpty())
+                .map(this::prepareAttachment)
+                .toList();
+    }
+
+    private ApprovalAttachment prepareAttachment(MultipartFile file) {
+        String originalFileName = file.getOriginalFilename() == null ? "" : file.getOriginalFilename().trim();
+        String cleanedPath = StringUtils.cleanPath(originalFileName);
+        String fileName = cleanedPath.substring(cleanedPath.lastIndexOf('/') + 1);
+        int extensionSeparator = fileName.lastIndexOf('.');
+        String extension = extensionSeparator < 0 ? "" : fileName.substring(extensionSeparator + 1).toLowerCase(Locale.ROOT);
+        if (!ALLOWED_ATTACHMENT_EXTENSIONS.contains(extension)) {
+            throw new IllegalArgumentException("첨부할 수 없는 파일 형식입니다: " + fileName);
+        }
+        try {
+            String contentType = file.getContentType() == null
+                    ? MediaType.APPLICATION_OCTET_STREAM_VALUE
+                    : file.getContentType();
+            return new ApprovalAttachment(UUID.randomUUID().toString(), fileName, contentType, file.getBytes());
+        } catch (IOException exception) {
+            throw new IllegalArgumentException("첨부파일을 읽을 수 없습니다: " + fileName, exception);
+        }
+    }
+
+    private void updateDocumentAttachments(
+            ApprovalDocument document,
+            List<ApprovalAttachment> newAttachments,
+            List<String> removedAttachmentIds
+    ) {
+        document.removeAttachments(removedAttachmentIds == null ? Collections.emptyList() : removedAttachmentIds);
+        document.addAttachments(newAttachments);
     }
 
     @FunctionalInterface
